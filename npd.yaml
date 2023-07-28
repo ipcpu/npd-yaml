@@ -220,12 +220,9 @@ spec:
                       - linux
       serviceAccountName: node-problem-detector
       hostAliases:
-      #- ip: "10.192.0.200"
-       # hostnames:
-        #  - "master-api-shouming.xpaas.lenovo.com"
       containers:
       - name: node-problem-detector
-        image: reg.lenovopcsd.com/devops/node-problem-detector:v0.8.12-shouming2-5.4
+        image: reg.ipcpu.com/devops/node-problem-detector:v0.8.12-shouming2-5.4
         imagePullPolicy: Always
         command:
         - "/bin/sh"
