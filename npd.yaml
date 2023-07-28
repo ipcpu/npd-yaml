@@ -1,0 +1,285 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: node-problem-detector
+  namespace: kube-system
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: system:node-problem-detector
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  - nodes
+  - nodes/status
+  - events
+  verbs:
+  - '*'
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: npd-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:node-problem-detector
+subjects:
+- kind: ServiceAccount
+  name: node-problem-detector
+  namespace: kube-system
+---
+apiVersion: v1
+data:
+  kernel-monitor.json: |
+    {
+        "plugin": "kmsg",
+        "logPath": "/dev/kmsg",
+        "lookback": "5m",
+        "bufferSize": 10,
+        "source": "kernel-monitor",
+        "conditions": [
+            {
+                "type": "KernelDeadlock",
+                "reason": "KernelHasNoDeadlock",
+                "message": "kernel has no deadlock"
+            },
+            {
+                "type": "ReadonlyFilesystem",
+                "reason": "FilesystemIsReadOnly",
+                "message": "Filesystem is read-only"
+            }
+        ],
+        "rules": [
+            {
+                "type": "temporary",
+                "reason": "PodOOMKilling",
+                "pattern": "(Task in /kubepods.slice/(.+) killed as a result of limit of .*)|(oom-kill.*oom_memcg=/kubepods/(.+),task_memcg=.*)|(oom-kill.*oom_memcg=/kubepods.slice/(.+),task_memcg=.*)|(oom_reaper: reaped process \\d+ (.+), now anon-rss:\\d+kB, file-rss:\\d+kB, shmem-rss:\\d+kB.*)"
+            },
+            {
+                "type": "temporary",
+                "reason": "TaskHung",
+                "pattern": "task \\S+:\\w+ blocked for more than \\w+ seconds\\."
+            },
+            {
+                "type": "temporary",
+                "reason": "UnregisterNetDevice",
+                "pattern": "unregister_netdevice: waiting for \\w+ to become free. Usage count = \\d+"
+            },
+            {
+                "type": "temporary",
+                "reason": "KernelOops",
+                "pattern": "BUG: unable to handle kernel NULL pointer dereference at .*"
+            },
+            {
+                "type": "temporary",
+                "reason": "KernelOops",
+                "pattern": "divide error: 0000 \\[#\\d+\\] SMP"
+            },
+            {
+                "type": "permanent",
+                "condition": "KernelDeadlock",
+                "reason": "AUFSUmountHung",
+                "pattern": "task umount\\.aufs:\\w+ blocked for more than \\w+ seconds\\."
+            },
+            {
+                "type": "permanent",
+                "condition": "KernelDeadlock",
+                "reason": "DockerHung",
+                "pattern": "task docker:\\w+ blocked for more than \\w+ seconds\\."
+            },
+            {
+                "type": "permanent",
+                "condition": "ReadonlyFilesystem",
+                "reason": "FilesystemIsReadOnly",
+                "pattern": "Remounting filesystem read-only"
+            },
+            {
+                "type": "temporary",
+                "reason": "TCPMemOverFlow",
+                "pattern": "TCP: out of memory -- consider tuning tcp_mem"
+                },
+                {
+                "type": "temporary",
+                "reason": "TCPSkOverFlow",
+                "pattern": "TCP: too many orphaned sockets"
+                },
+                {
+                "type": "temporary",
+                "reason": "NFOverFlow",
+                "pattern": "nf_conntrack: table full, dropping packet"
+                },
+                {
+                "type": "temporary",
+                "reason": "ARPOverFlow",
+                "pattern": "\\w+: neighbor table overflow!"
+                },
+                {
+                "type": "temporary",
+                "reason": "BlockIOError",
+                "pattern": "Buffer I/O error on device (.+), logical block \\d+"
+                },
+                {
+                "type": "temporary",
+                "reason": "Ext4Error",
+                "pattern": "EXT4-fs error .*"
+                },
+                {
+                "type": "temporary",
+                "reason": "BlockIOError",
+                "pattern": "blk_update_request: I/O error, dev \\w+, sector \\d+"
+                },
+                {
+                "type": "temporary",
+                "reason": "FileOpenLimit",
+                "pattern": "VFS: file-max limit \\d+ reached"
+                },
+                {
+                "type": "temporary",
+                "reason": "SlabFreeErr",
+                "pattern": "cache_from_obj: Wrong slab cache. (.+) but object is from (.+)"
+                },
+                {
+                "type": "temporary",
+                "reason": "MemPageFailed",
+                "pattern": "page allocation failure(.) order:[3-5],(.+)"
+                },
+                {
+                "type": "temporary",
+                "reason": "SoftLockUp",
+                "pattern": "BUG: soft lockup - CPU#\\d+ stuck for (.+)"
+                },
+                {
+                "type": "temporary",
+                "reason": "SchedInAtomic",
+                "pattern": "BUG: scheduling while atomic:(.+)"
+                },
+                {
+                "type": "temporary",
+                "reason": "RCUStall",
+                "pattern": "INFO: \\w+ self-detected stall on CPU (.+)"
+                },
+                {
+                "type": "temporary",
+                "reason": "PCICardErr",
+                "pattern": "Card not present on Slot(.+)"
+                }
+        ]
+    }
+  docker-monitor.json: |
+    {
+        "plugin": "journald",
+        "pluginConfig": {
+            "source": "dockerd"
+        },
+        "logPath": "/var/log/journal",
+        "lookback": "5m",
+        "bufferSize": 10,
+        "source": "docker-monitor",
+        "conditions": [],
+        "rules": [
+            {
+                "type": "temporary",
+                "reason": "CorruptDockerImage",
+                "pattern": "Error trying v2 registry: failed to register layer: rename /data/docker/image/(.+) /data/docker/image/(.+): directory not empty.*"
+            }
+        ]
+    }
+kind: ConfigMap
+metadata:
+  name: node-problem-detector-config
+  namespace: kube-system
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: node-problem-detector
+  namespace: kube-system
+  labels:
+    app: node-problem-detector
+spec:
+  selector:
+    matchLabels:
+      app: node-problem-detector
+  template:
+    metadata:
+      labels:
+        app: node-problem-detector
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: kubernetes.io/os
+                    operator: In
+                    values:
+                      - linux
+      serviceAccountName: node-problem-detector
+      hostAliases:
+      #- ip: "10.192.0.200"
+       # hostnames:
+        #  - "master-api-shouming.xpaas.lenovo.com"
+      containers:
+      - name: node-problem-detector
+        image: reg.lenovopcsd.com/devops/node-problem-detector:v0.8.12-shouming2-5.4
+        imagePullPolicy: Always
+        command:
+        - "/bin/sh"
+        - "-c"
+        - "exec /node-problem-detector --logtostderr --config.system-log-monitor=/config/kernel-monitor.json,/config/docker-monitor.json --prometheus-address=0.0.0.0 --port=20256 --prometheus-port=20257"
+        securityContext:
+          privileged: true
+        resources:
+          limits:
+            cpu: "200m"
+            memory: "100Mi"
+          requests:
+            cpu: "20m"
+            memory: "20Mi"
+        env:
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        volumeMounts:
+        - name: log
+          mountPath: /var/log
+          readOnly: true
+        - name: kmsg
+          mountPath: /dev/kmsg
+          readOnly: true
+        # Make sure node problem detector is in the same timezone
+        # with the host.
+        - name: localtime
+          mountPath: /etc/localtime
+          readOnly: true
+        - name: config
+          mountPath: /config
+          readOnly: true
+      volumes:
+      - name: log
+        hostPath:
+          path: /var/log/
+      - name: kmsg
+        hostPath:
+          path: /dev/kmsg
+      - name: localtime
+        hostPath:
+          path: /etc/localtime
+      - name: config
+        configMap:
+          name: node-problem-detector-config
+          items:
+          - key: kernel-monitor.json
+            path: kernel-monitor.json
+          - key: docker-monitor.json
+            path: docker-monitor.json
+      tolerations:
+        - effect: NoSchedule
+          operator: Exists
+        - effect: NoExecute
+          operator: Exists
