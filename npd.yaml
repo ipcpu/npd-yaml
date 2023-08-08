@@ -222,7 +222,7 @@ spec:
       hostAliases:
       containers:
       - name: node-problem-detector
-        image: reg.ipcpu.com/devops/node-problem-detector:v0.8.12-shouming2-5.4
+        image: registry-cn-beijing-vpc.ack.aliyuncs.com/acs/ack-node-problem-detector:v0.8.12-bf8aff8-aliyun
         imagePullPolicy: Always
         command:
         - "/bin/sh"
